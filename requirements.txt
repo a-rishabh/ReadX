@@ -1,0 +1,12 @@
+langchain
+langgraph
+fastapi
+uvicorn
+streamlit
+chromadb
+psycopg2-binary
+pymupdf
+plotly
+python-dotenv
+requests
+pytest
