@@ -12,3 +12,4 @@ pytest
 plotly
 streamlit
 python-multipart
+sentence-transformers

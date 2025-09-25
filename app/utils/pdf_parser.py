@@ -42,30 +42,100 @@ def split_sections(full_text: str) -> dict[str, str]:
 
     return sections
 
+import re
+
+def is_likely_author(name: str) -> bool:
+    # Must be 2–4 words
+    parts = name.split()
+    if not (2 <= len(parts) <= 4):
+        return False
+
+    # Each part should start with capital (allow initials like "J.")
+    for p in parts:
+        if not re.match(r"^[A-Z][a-zA-Z\-\.]*$", p):
+            return False
+
+    # Filter out affiliation keywords
+    if any(k in name.lower() for k in ["university", "institute", "school", "department", "lab", "new york"]):
+        return False
+
+    return True
+
 def guess_title_and_authors(full_text: str) -> tuple[str | None, list[str]]:
-    # Super simple heuristic: title = first non-empty line not too long,
-    # authors = next line with commas and without too many words
     lines = [l.strip() for l in full_text.splitlines() if l.strip()]
+
+    # Title = first big line before abstract/introduction
     title = None
-    authors = []
-    for i, line in enumerate(lines[:40]):
-        if 5 < len(line) < 200 and not line.lower().startswith(("arxiv", "doi:", "preprint")):
-            title = _normalize(line)
-            # Try next 1-2 lines for authors
-            cands = lines[i+1:i+3]
-            for c in cands:
-                # crude author line detection
-                if ("," in c or " and " in c) and len(c) < 200 and not c.lower().startswith(("abstract", "introduction")):
-                    # strip affiliations markers like * † 1 2
-                    c = re.sub(r"[\*\†\d\^]", "", c)
-                    parts = [p.strip() for p in re.split(r",| and ", c) if p.strip()]
-                    # filter likely not author tokens
-                    parts = [p for p in parts if 2 <= len(p.split()) <= 4]
-                    if parts:
-                        authors = parts
-                        return title, authors
+    for line in lines[:30]:
+        if (
+            5 < len(line) < 200
+            and not re.match(r"(arxiv|doi:|preprint)", line, re.I)
+            and not line.lower().startswith(("abstract", "introduction"))
+        ):
+            title = line.strip()
             break
+
+    # Collect metadata zone (before Abstract/Introduction)
+    authors_zone = []
+    for line in lines:
+        if re.match(r"(?i)(abstract|introduction)", line):
+            break
+        authors_zone.append(line)
+
+    # Try to parse names
+    candidates = []
+    for line in authors_zone:
+        if len(line) > 200 or "@" in line:
+            continue
+        clean = re.sub(r"[\*\†\d\^]", "", line)
+        parts = re.split(r",| and ", clean)
+        for p in parts:
+            name = p.strip()
+            if is_likely_author(name):
+                candidates.append(name)
+
+    authors = list(dict.fromkeys(candidates))
     return title, authors
+
+# def guess_title_and_authors(full_text: str) -> tuple[str | None, list[str]]:
+#     lines = [l.strip() for l in full_text.splitlines() if l.strip()]
+
+#     # Guess title: first non-empty line that isn't metadata
+#     title = None
+#     for line in lines[:30]:
+#         if (
+#             5 < len(line) < 200
+#             and not re.match(r"(arxiv|doi:|preprint)", line, re.I)
+#             and not line.lower().startswith(("abstract", "introduction"))
+#         ):
+#             title = line.strip()
+#             break
+
+#     # Find metadata zone: lines until Abstract/Introduction
+#     authors_zone = []
+#     for line in lines:
+#         if re.match(r"(?i)(abstract|introduction)", line):
+#             break
+#         authors_zone.append(line)
+
+#     # Filter possible author lines
+#     candidates = []
+#     for line in authors_zone:
+#         if len(line) > 200:  # skip huge affiliation lines
+#             continue
+#         if "@" in line or "university" in line.lower() or "institute" in line.lower():
+#             continue
+#         # remove footnotes/symbols
+#         clean = re.sub(r"[\*\†\d\^]", "", line)
+#         # possible multiple authors in one line
+#         parts = re.split(r",| and ", clean)
+#         for p in parts:
+#             name = p.strip()
+#             if 2 <= len(name.split()) <= 4:  # heuristically a name
+#                 candidates.append(name)
+
+#     authors = list(dict.fromkeys(candidates))  # unique, keep order
+#     return title, authors
 
 def chunk_text(section_name: str, text: str, max_tokens: int = 800) -> list[str]:
     # token-agnostic approx: assume ~1.3 words per token; use words count
