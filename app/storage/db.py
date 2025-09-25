@@ -105,3 +105,27 @@ def insert_chunks(paper_id: int, chunks: list[tuple[str, str]]):
         with conn.cursor() as cur:
             for idx, (section, content) in enumerate(chunks):
                 cur.execute(sql, (paper_id, section, idx, content))
+
+def get_paper_with_authors(paper_id: int) -> tuple[dict, list[str]]:
+    sql_paper = "SELECT id, title, abstract, year, venue FROM papers WHERE id = %s;"
+    sql_authors = """
+    SELECT a.name
+    FROM authors a
+    JOIN paper_authors pa ON pa.author_id = a.id
+    WHERE pa.paper_id = %s;
+    """
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql_paper, (paper_id,))
+            row = cur.fetchone()
+            paper = {
+                "id": row[0],
+                "title": row[1],
+                "abstract": row[2],
+                "year": row[3],
+                "venue": row[4],
+            } if row else {}
+
+            cur.execute(sql_authors, (paper_id,))
+            authors = [r[0] for r in cur.fetchall()]
+    return paper, authors

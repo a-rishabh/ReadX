@@ -38,3 +38,27 @@ def add_chunks(paper_id: int, chunks: Iterable[tuple[str, str]]):
 
     embeddings = _embed(texts)
     _collection.add(ids=ids, documents=texts, metadatas=metas, embeddings=embeddings)
+
+def query(question: str, top_k: int = 3) -> list[dict]:
+    """Return top_k matches with metadata + content"""
+    q_embed = _embed([question])[0]
+    results = _collection.query(
+        query_embeddings=[q_embed],
+        n_results=top_k,
+        include=["documents", "metadatas", "distances"]
+    )
+
+    output = []
+    for doc, meta, dist in zip(
+        results["documents"][0],
+        results["metadatas"][0],
+        results["distances"][0],
+    ):
+        output.append(
+            {
+                "content": doc,
+                "metadata": meta,
+                "score": float(1 - dist),  # higher = more relevant
+            }
+        )
+    return output
