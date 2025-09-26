@@ -7,11 +7,12 @@ router = APIRouter()
 
 
 @router.get("/ask")
-def ask_question(
-    question: str = Query(...),
-    paper_id: Optional[int] = None,
-    top_k: int = 3,
-):
+# def ask_question(
+#     question: str = Query(...),
+#     paper_id: Optional[int] = None,
+#     top_k: int = 3,
+# ):
+def ask_question(question: str, paper_id: Optional[int] = None, top_k: int = 3):
     query_type = route_question(question, paper_id)
 
     if query_type.startswith("metadata"):
@@ -47,9 +48,7 @@ def ask_question(
     return {"query": question, "results": formatted}
 
 
-
-
-def route_question(question: str, paper_id: int | None = None):
+def route_question(question: str, paper_id: Optional[int] = None):
     q = question.lower()
     if "author" in q or "who wrote" in q:
         return "metadata:authors"
