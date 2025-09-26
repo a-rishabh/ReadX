@@ -129,3 +129,11 @@ def get_paper_with_authors(paper_id: int) -> tuple[dict, list[str]]:
             cur.execute(sql_authors, (paper_id,))
             authors = [r[0] for r in cur.fetchall()]
     return paper, authors
+
+def get_latest_paper_id() -> int:
+    sql = "SELECT id FROM papers ORDER BY created_at DESC LIMIT 1;"
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            row = cur.fetchone()
+            return row[0] if row else None
