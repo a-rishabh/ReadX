@@ -9,3 +9,5 @@ def ask_gemini(prompt: str, model: str = DEFAULT_MODEL) -> str:
     """Send a prompt to Gemini and return text output."""
     response = genai.GenerativeModel(model).generate_content(prompt)
     return response.text.strip()
+
+# THIS IS CURIOSITY TEST
