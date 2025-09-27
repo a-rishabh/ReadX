@@ -1,13 +1,23 @@
 services:
-  pg:
+  postgres:
     image: postgres:15
     environment:
-      POSTGRES_DB: readx
       POSTGRES_USER: readx
       POSTGRES_PASSWORD: readx
+      POSTGRES_DB: readx
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+
+  grobid:
+    image: lfoppiano/grobid:0.7.3
+    ports:
+      - "8070:8070"
+    environment:
+      GROBID_CONFIG: /opt/grobid/config/config.yml
+    restart: unless-stopped
+
 volumes:
   pgdata:
+
