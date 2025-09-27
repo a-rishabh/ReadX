@@ -16,3 +16,4 @@ sentence-transformers
 openai
 langchain
 google-generativeai
+lxml

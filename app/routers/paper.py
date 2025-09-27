@@ -7,6 +7,11 @@ from app.storage import db
 from app.storage import vector_store
 from app.utils.pdf_parser import parse_pdf
 
+from app.utils.grobid_client import parse_pdf_with_grobid, extract_authors_from_tei
+
+
+
+
 router = APIRouter()
 
 UPLOAD_DIR = Path("data/papers")
@@ -40,11 +45,13 @@ async def upload_paper(file: UploadFile = File(...)):
             pass
         raise HTTPException(status_code=500, detail=f"Failed to parse PDF: {e}")
 
+    tei_xml = parse_pdf_with_grobid(dest, service="processHeaderDocument")
+    authors = extract_authors_from_tei(tei_xml)
     title = parsed.get("title")
     abstract = parsed.get("abstract")
     year = parsed.get("year")
     venue = parsed.get("venue")
-    authors = parsed.get("authors", [])
+    # authors = parsed.get("authors", [])
     chunks = parsed.get("chunks", [])
 
     # Insert paper row
