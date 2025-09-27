@@ -13,3 +13,6 @@ plotly
 streamlit
 python-multipart
 sentence-transformers
+openai
+langchain
+google-generativeai
