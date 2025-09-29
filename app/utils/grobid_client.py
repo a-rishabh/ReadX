@@ -81,3 +81,43 @@ def extract_title_from_tei(tei_xml: str) -> Optional[str]:
     root = etree.fromstring(tei_xml.encode("utf-8"))
     title_node = root.find(".//tei:titleStmt/tei:title", namespaces=NS)
     return title_node.text.strip() if title_node is not None else None
+
+
+
+def extract_body_sections_from_tei(tei_xml: str) -> dict[str, str]:
+    """
+    Parse TEI XML body into {section_name: text}.
+    GROBID usually returns <div type="section"><head>Title</head><p>...</p></div>
+    """
+    sections: dict[str, str] = {}
+    root = etree.fromstring(tei_xml.encode("utf-8"))
+
+    for div in root.xpath(".//tei:text//tei:body//tei:div", namespaces=NS):
+        # Section title
+        head_el = div.find("tei:head", namespaces=NS)
+        section_name = head_el.text.strip() if head_el is not None else "unnamed"
+
+        # Section text = concat all <p> paragraphs
+        paras = [p.text for p in div.findall(".//tei:p", namespaces=NS) if p.text]
+        section_text = "\n".join(paras).strip()
+
+        if section_text:
+            sections[section_name] = section_text
+
+    return sections
+
+
+def chunk_sections(sections: dict[str, str], max_tokens: int = 800) -> list[tuple[str, str]]:
+    """
+    Convert TEI sections into (section_name, chunk) pairs.
+    Similar to pdf_parser.chunk_text but for structured TEI.
+    """
+    chunk_pairs = []
+    for sec_name, text in sections.items():
+        words = text.split()
+        max_words = int(max_tokens * 1.3)
+        for i in range(0, len(words), max_words):
+            chunk = " ".join(words[i:i+max_words]).strip()
+            if chunk:
+                chunk_pairs.append((sec_name, chunk))
+    return chunk_pairs
