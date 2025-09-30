@@ -6,6 +6,10 @@ from lxml import etree
 # Base URL for GROBID service
 GROBID_URL = os.getenv("GROBID_URL", "http://localhost:8070")
 
+
+# ----------------------------------------------------------------------
+# PDF → TEI
+# ----------------------------------------------------------------------
 def parse_pdf_with_grobid(pdf_path: str, service: str = "processFulltextDocument") -> str:
     """
     Send a PDF to GROBID and get structured TEI XML.
@@ -27,13 +31,27 @@ def parse_pdf_with_grobid(pdf_path: str, service: str = "processFulltextDocument
 
 
 # ----------------------------------------------------------------------
-# Author extraction
+# Title
 # ----------------------------------------------------------------------
+def extract_title_from_tei(tei_xml: str) -> str | None:
+    """
+    Extract the main title of the paper from TEI XML.
+    """
+    root = etree.fromstring(tei_xml.encode("utf-8"))
+    ns = {"tei": "http://www.tei-c.org/ns/1.0"}
+    title_el = root.find(".//tei:titleStmt/tei:title", namespaces=ns)
+    if title_el is not None and title_el.text:
+        return title_el.text.strip()
+    return None
 
+
+# ----------------------------------------------------------------------
+# Authors
+# ----------------------------------------------------------------------
 def extract_authors_from_tei(tei_xml: str) -> list[str]:
     """
     Extract author names from TEI XML returned by GROBID.
-    Returns a list of strings like "Firstname Lastname".
+    Returns a list like ["Firstname Lastname", ...].
     """
     authors = []
     root = etree.fromstring(tei_xml.encode("utf-8"))
@@ -49,24 +67,23 @@ def extract_authors_from_tei(tei_xml: str) -> list[str]:
 
 
 # ----------------------------------------------------------------------
-# Body sections extraction
+# Sections
 # ----------------------------------------------------------------------
-
 def extract_body_sections_from_tei(tei_xml: str) -> dict[str, str]:
     """
-    Extract structured sections from TEI XML body.
-    Returns a dict {section_title: section_text}.
+    Extract structured body sections from TEI XML.
+    Returns {section_title: section_text}.
     """
     root = etree.fromstring(tei_xml.encode("utf-8"))
     ns = {"tei": "http://www.tei-c.org/ns/1.0"}
     sections = {}
 
     for div in root.xpath(".//tei:div", namespaces=ns):
-        # Try to get section title
+        # Section title
         head = div.find("tei:head", namespaces=ns)
         sec_title = head.text.strip().lower() if head is not None and head.text else "unnamed_section"
 
-        # Extract paragraphs
+        # Section paragraphs
         paragraphs = []
         for p in div.findall(".//tei:p", namespaces=ns):
             if p.text:
@@ -78,26 +95,25 @@ def extract_body_sections_from_tei(tei_xml: str) -> dict[str, str]:
 
 
 # ----------------------------------------------------------------------
-# Utility wrapper
+# Full pipeline
 # ----------------------------------------------------------------------
-
 def parse_with_grobid(pdf_path: str) -> dict:
     """
-    Full pipeline:
-    - Call GROBID
+    High-level pipeline:
+    - Get TEI XML from GROBID
+    - Extract title
     - Extract authors
-    - Extract sections
+    - Extract structured sections
     """
     tei_xml = parse_pdf_with_grobid(pdf_path, service="processFulltextDocument")
+    title = extract_title_from_tei(tei_xml)
     authors = extract_authors_from_tei(tei_xml)
     sections = extract_body_sections_from_tei(tei_xml)
 
-    # Optional: get abstract if available
-    abstract = sections.get("abstract")
-
     return {
+        "title": title,
         "authors": authors,
         "sections": sections,
-        "abstract": abstract,
-        "tei": tei_xml,  # keep raw for debugging if needed
+        "abstract": sections.get("abstract"),
+        "tei": tei_xml,  # keep raw XML for debugging
     }
