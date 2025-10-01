@@ -23,7 +23,7 @@ def upload_paper(file: UploadFile = File(...)):
         # --- Try GROBID first ---
         try:
             parsed = grobid_client.parse_with_grobid(str(paper_path))
-            title = None  # TEI header parsing can be added later
+            title = parsed["title"]
             authors = parsed["authors"]
             sections = parsed["sections"]
             abstract = parsed.get("abstract")
