@@ -1,75 +1,59 @@
+# app/routers/query.py
 from fastapi import APIRouter, Query
-from typing import Optional, Dict, Any
 from app.storage import db, vector_store
-from app.llm.gemini import ask_gemini
+from app.llm import gemini
+import re
 
 router = APIRouter()
 
-def synthesize_answer(question: str, retrieved: list[dict]) -> str:
-    if not retrieved:
-        return "I couldn't find relevant information in the ingested papers."
-
-    context = "\n\n".join(
-        f"[paper_id={r['metadata']['paper_id']}, section={r['metadata'].get('section')}] {r['content']}"
-        for r in retrieved
-    )
-
-    prompt = f"""
-    You are an assistant helping users understand research papers.
-
-    Question: {question}
-
-    Context:
-    {context}
-
-    Answer concisely in plain English. 
-    If possible, cite the section or authors you drew information from.
-    """
-
-    return ask_gemini(prompt)
+def is_metadata_question(q: str) -> str | None:
+    """Detect if the query is about metadata instead of content."""
+    q_lower = q.lower()
+    if "author" in q_lower or "who wrote" in q_lower:
+        return "authors"
+    if "title" in q_lower:
+        return "title"
+    if "year" in q_lower or "published" in q_lower:
+        return "year"
+    if "venue" in q_lower or "conference" in q_lower or "journal" in q_lower:
+        return "venue"
+    return None
 
 @router.get("/ask")
 def ask_question(
-    question: str = Query(...),
-    paper_id: Optional[int] = None,
-    top_k: int = 3,
-) -> Dict[str, Any]:
-    q = question.lower()
+    question: str = Query(..., description="The user question"),
+    paper_id: int = Query(..., description="Paper ID to query"),
+    top_k: int = Query(3, description="Top-k chunks to retrieve"),
+):
+    # 1. Check if metadata question
+    meta_field = is_metadata_question(question)
+    if meta_field:
+        paper, authors = db.get_paper_with_authors(paper_id)
+        if not paper:
+            return {"query": question, "answer": "Paper not found", "paper_id": paper_id}
 
-    # ✅ Metadata lookups handled directly in Postgres
-    if "author" in q or "who wrote" in q:
-        pid = paper_id or db.get_latest_paper_id()
-        paper, authors = db.get_paper_with_authors(pid)
-        return {"query": question, "answer": authors, "paper_id": pid}
+        if meta_field == "authors":
+            return {"query": question, "answer": authors, "paper_id": paper_id}
+        if meta_field == "title":
+            return {"query": question, "answer": paper.get("title"), "paper_id": paper_id}
+        if meta_field == "year":
+            return {"query": question, "answer": paper.get("year"), "paper_id": paper_id}
+        if meta_field == "venue":
+            return {"query": question, "answer": paper.get("venue"), "paper_id": paper_id}
 
-    if "title" in q:
-        pid = paper_id or db.get_latest_paper_id()
-        paper, _ = db.get_paper_with_authors(pid)
-        return {"query": question, "answer": paper.get("title"), "paper_id": pid}
+    # 2. Else → vector search
+    results = vector_store.search_chunks(paper_id, question, top_k=top_k)
+    context = "\n\n".join([r["content"] for r in results])
+    prompt = f"Question: {question}\n\nContext:\n{context}\n\nAnswer concisely with citations."
 
-    if "year" in q or "published" in q:
-        pid = paper_id or db.get_latest_paper_id()
-        paper, _ = db.get_paper_with_authors(pid)
-        return {"query": question, "answer": paper.get("year"), "paper_id": pid}
-
-    if "venue" in q or "conference" in q:
-        pid = paper_id or db.get_latest_paper_id()
-        paper, _ = db.get_paper_with_authors(pid)
-        return {"query": question, "answer": paper.get("venue"), "paper_id": pid}
-
-    # ✅ Default: do vector search + Gemini synthesis
-    results = vector_store.query(question, top_k=top_k)
-    answer = synthesize_answer(question, results)
+    try:
+        answer = gemini.ask_gemini(prompt)
+    except Exception as e:
+        return {"query": question, "error": str(e)}
 
     return {
         "query": question,
         "answer": answer,
-        "citations": [
-            {
-                "paper_id": r["metadata"]["paper_id"],
-                "section": r["metadata"].get("section"),
-                "score": r["score"],
-            }
-            for r in results
-        ],
+        "citations": results,
+        "paper_id": paper_id,
     }
