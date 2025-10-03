@@ -127,9 +127,9 @@ streamlit run ui/streamlit_app.py
 
 ## Next Steps
 
-* [ ] Add TEI body chunking (structured section-level chunks from GROBID)
-* [ ] Improve author disambiguation (affiliations, emails)
-* [ ] Add LLM-powered synthesis (`Gemini`) into `/query/ask`
-* [ ] Expand visualization layer (method diagrams, results plots)
+* Add TEI body chunking (structured section-level chunks from GROBID)
+* Improve author disambiguation (affiliations, emails)
+* Add LLM-powered synthesis (`Gemini`) into `/query/ask`
+* Expand visualization layer (method diagrams, results plots)
 
 ---
