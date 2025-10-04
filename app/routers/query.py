@@ -1,59 +1,112 @@
 # app/routers/query.py
-from fastapi import APIRouter, Query
-from app.storage import db, vector_store
+from fastapi import APIRouter, Query, HTTPException
+from app.storage import vector_store, db
 from app.llm import gemini
-import re
+from typing import List, Dict, Any
 
 router = APIRouter()
 
-def is_metadata_question(q: str) -> str | None:
-    """Detect if the query is about metadata instead of content."""
-    q_lower = q.lower()
-    if "author" in q_lower or "who wrote" in q_lower:
-        return "authors"
-    if "title" in q_lower:
-        return "title"
-    if "year" in q_lower or "published" in q_lower:
-        return "year"
-    if "venue" in q_lower or "conference" in q_lower or "journal" in q_lower:
-        return "venue"
-    return None
+# ---------------------------
+# Helper: Synthesize Answer
+# ---------------------------
+def synthesize_answer(question: str, contexts: List[Dict[str, Any]]) -> str:
+    """
+    Given a question and retrieved chunks, synthesize a concise answer.
+    """
+    if not contexts:
+        return "No relevant context found in the database."
 
-@router.get("/ask")
-def ask_question(
-    question: str = Query(..., description="The user question"),
-    paper_id: int = Query(..., description="Paper ID to query"),
-    top_k: int = Query(3, description="Top-k chunks to retrieve"),
-):
-    # 1. Check if metadata question
-    meta_field = is_metadata_question(question)
-    if meta_field:
-        paper, authors = db.get_paper_with_authors(paper_id)
-        if not paper:
-            return {"query": question, "answer": "Paper not found", "paper_id": paper_id}
+    # Build structured context string
+    context_text = "\n\n".join(
+        [f"[{c['paper_id']} - {c['section']}] {c['content']}" for c in contexts]
+    )
 
-        if meta_field == "authors":
-            return {"query": question, "answer": authors, "paper_id": paper_id}
-        if meta_field == "title":
-            return {"query": question, "answer": paper.get("title"), "paper_id": paper_id}
-        if meta_field == "year":
-            return {"query": question, "answer": paper.get("year"), "paper_id": paper_id}
-        if meta_field == "venue":
-            return {"query": question, "answer": paper.get("venue"), "paper_id": paper_id}
+    prompt = f"""
+You are ReadX — a research assistant AI.
+Use the context below to answer the question accurately and concisely.
 
-    # 2. Else → vector search
-    results = vector_store.search_chunks(paper_id, question, top_k=top_k)
-    context = "\n\n".join([r["content"] for r in results])
-    prompt = f"Question: {question}\n\nContext:\n{context}\n\nAnswer concisely with citations."
+Question:
+{question}
+
+Context:
+{context_text}
+
+If the context does not contain the answer, say so clearly.
+Only use factual info from the provided text — do not hallucinate.
+    """
 
     try:
-        answer = gemini.ask_gemini(prompt)
+        return gemini.ask_gemini(prompt)
     except Exception as e:
-        return {"query": question, "error": str(e)}
+        return f"LLM synthesis failed: {str(e)}"
 
-    return {
-        "query": question,
-        "answer": answer,
-        "citations": results,
-        "paper_id": paper_id,
-    }
+# ---------------------------
+# Endpoint: /query/ask
+# ---------------------------
+@router.get("/ask")
+def ask_question(
+    question: str = Query(..., description="User question about a paper"),
+    paper_id: int | None = Query(None, description="Paper ID to restrict search"),
+    top_k: int = Query(5, description="Number of relevant chunks to retrieve"),
+):
+    """
+    Retrieve relevant chunks via vector search and synthesize an answer.
+    """
+    try:
+        results = vector_store.query(question, top_k=top_k, paper_id=paper_id)
+
+        if not results:
+            raise HTTPException(status_code=404, detail="No matching content found.")
+
+        # Build clean response structure
+        citations = [
+            {
+                "paper_id": r["paper_id"],
+                "section": r["section"],
+                "score": r["score"],
+            }
+            for r in results
+        ]
+
+        # Synthesize final answer from LLM
+        answer = synthesize_answer(question, results)
+
+        response = {
+            "query": question,
+            "answer": answer,
+            "citations": citations,
+        }
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ---------------------------
+# Endpoint: /query/context
+# ---------------------------
+@router.get("/context")
+def get_context(
+    paper_id: int = Query(...),
+    limit: int = Query(5),
+):
+    """
+    Return a few chunks of context for debugging or front-end previews.
+    """
+    try:
+        with db.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT section, content
+                    FROM paper_chunks
+                    WHERE paper_id = %s
+                    LIMIT %s;
+                    """,
+                    (paper_id, limit),
+                )
+                rows = cur.fetchall()
+        return [{"section": r[0], "content": r[1]} for r in rows]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
